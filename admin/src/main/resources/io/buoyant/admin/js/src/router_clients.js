@@ -19,7 +19,7 @@ define([
     var clientContainerTemplate = templates.router_client_container;
     var rateMetricPartial = templates["rate_metric.partial"];
     var EXPAND_CLIENT_THRESHOLD = 6;
-    var TRANSFORMER_RE = /(\/%\/[^\$#]*)?(\/[\$#]\/.*)/;
+    var TRANSFORMER_RE = /(\/%\/[^$#]*)?(\/[$#]\/.*)/;
     var activeClients = {};
 
     /*
@@ -51,7 +51,7 @@ define([
     }
 
     function shouldExpandClient(routerName, initialClients) {
-      // if there are many clients, collapse them by default to improve page perfomance
+      // if there are many clients, collapse them by default to improve page performance
       if (clientExpandState[routerName] === expandStates.custom) {
         return true;
       } else if (initialClients) {

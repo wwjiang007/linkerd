@@ -6,7 +6,8 @@ import com.google.protobuf.compiler.PluginProtos.{CodeGeneratorRequest, CodeGene
 import com.twitter.util.{Return, Throw, Try}
 import io.buoyant.grpc.gen.ProtoFile.TypeRef
 import java.io.InputStream
-import scala.collection.JavaConverters._
+
+import scala.jdk.CollectionConverters._
 
 /**
  * Generates Twitter-style scala bindings for proto3/gRPC.
@@ -32,7 +33,7 @@ object Generator {
       val protos = req.getProtoFileList.asScala.map(ProtoFile.mk(_))
       if (noGrpc && protos.exists(_.services.nonEmpty)) throw GrpcRequired
 
-      val typeMap = mkTypeMap(protos)
+      val typeMap = mkTypeMap(protos.toSeq)
       protos.map { proto =>
         val name = {
           val dir = proto.scalaPkg.replace(".", "/")
@@ -201,13 +202,13 @@ object Generator {
               case mp if msg.endsWith(mp.name) =>
                 val key = mapEntryType(mp, "key", translateType)
                 val value = mapEntryType(mp, "value", translateType)
-                val typ = s"Map[${key}, ${value}]"
+                val typ = s"scala.collection.immutable.Map[${key}, ${value}]"
                 FieldArg(name, typ, typ, s"${typ}()", Left(f))
             }.getOrElse(throw new IllegalArgumentException(s"expected ${name} to have nested map entry message type"))
           case _ =>
             val typ = genFieldType(f, translateType)
-            val boxed = if (f.isRepeated) s"Seq[${typ}]" else s"Option[${typ}]"
-            val default = if (f.isRepeated) "Nil" else "None"
+            val boxed = if (f.isRepeated) s"scala.Seq[${typ}]" else s"scala.Option[${typ}]"
+            val default = if (f.isRepeated) "scala.Nil" else "scala.None"
             FieldArg(name, typ, boxed, default, Left(f))
         }
     }
@@ -216,8 +217,8 @@ object Generator {
       case (_, o) =>
         val name = snakeToLowerCamel(o.name)
         val typ = s"${msgTypeName}.Oneof${snakeToUpperCamel(o.name)}"
-        val boxed = s"Option[${typ}]"
-        FieldArg(name, typ, boxed, "None", Right(o))
+        val boxed = s"scala.Option[${typ}]"
+        FieldArg(name, typ, boxed, "scala.None", Right(o))
     }
 
     // Arrange all fields in numerical order.
@@ -316,11 +317,11 @@ object Generator {
             }
             //convert reader's tuple value into message entries
             s"""|${name}Arg ++ ${ref}.unapply(${reader}).flatMap {
-                |${indent}    case (Some(a), Some(b)) => Some((a,b))
-                |${indent}    case _ => None
+                |${indent}    case (scala.Some(a), scala.Some(b)) => scala.Some((a,b))
+                |${indent}    case _ => scala.None
                 |${indent}  }""".stripMargin
           } else if (f.isRepeated) s"${name}Arg :+ ${reader}"
-          else s"Option(${reader})"
+          else s"scala.Option(${reader})"
 
         s"""|${indent}      case ${f.number} => // ${name}: ${f.typeRef}
             |${indent}        typ match {
@@ -339,22 +340,22 @@ object Generator {
           val readArg = f match {
             case f if f.isRepeated =>
               s"""|${indent}            ${name}Arg match {
-                  |${indent}              case None =>
+                  |${indent}              case scala.None =>
                   |${indent}                val v = ${reader}
-                  |${indent}                ${name}Arg = Some(${ftyp}(Seq(v)))
-                  |${indent}              case Some(${ftyp}(seq)) =>
+                  |${indent}                ${name}Arg = scala.Some(${ftyp}(scala.Seq(v)))
+                  |${indent}              case scala.Some(${ftyp}(seq)) =>
                   |${indent}                val v = ${reader}
-                  |${indent}                ${name}Arg = Some(${ftyp}(seq :+ v))
-                  |${indent}              case Some(_) =>
+                  |${indent}                ${name}Arg = scala.Some(${ftyp}(seq :+ v))
+                  |${indent}              case scala.Some(_) =>
                   |${indent}                throw new IllegalArgumentException(s"more than one field provided for ${name}")
                   |${indent}            }""".stripMargin
 
             case f =>
               s"""|${indent}            ${name}Arg match {
-                  |${indent}              case None =>
+                  |${indent}              case scala.None =>
                   |${indent}                val v = ${reader}
-                  |${indent}                ${name}Arg = Some(${ftyp}(v))
-                  |${indent}              case Some(_) =>
+                  |${indent}                ${name}Arg = scala.Some(${ftyp}(v))
+                  |${indent}              case scala.Some(_) =>
                   |${indent}                throw new IllegalArgumentException(s"more than one field provided for ${name}")
                   |${indent}            }""".stripMargin
           }
@@ -417,7 +418,7 @@ object Generator {
           //when iterating over maps, convert tuple value into entry types
           if (f.isMap) f.typeRef match {
             case ProtoFile.TypeRef.Message(msg) =>
-              genWriteKind(f, translateType, s"${translateType(msg)}(Some(value._1), Some(value._2))", s"${indent}    ")
+              genWriteKind(f, translateType, s"${translateType(msg)}(scala.Some(value._1), scala.Some(value._2))", s"${indent}    ")
             case _ => throw new IllegalArgumentException("excepted typeRef of type Message")
           }
           else genWriteKind(f, translateType, "value", s"${indent}    ")
@@ -432,8 +433,8 @@ object Generator {
       case FieldArg(name, typ, _, _, Left(f)) =>
         val writer = genWriteKind(f, translateType, "value", s"${indent}      ")
         s"""|${indent}  msg.`${name}` match {
-            |${indent}    case None =>
-            |${indent}    case Some(value) =>
+            |${indent}    case scala.None =>
+            |${indent}    case scala.Some(value) =>
             |${writer}
             |${indent}  }
             |""".stripMargin
@@ -442,12 +443,12 @@ object Generator {
         val fieldWriters = o.fields.map { f =>
           val ftyp = s"${typ}.`${snakeToUpperCamel(f.name)}`"
           val writer = genWriteKind(f, translateType, "value", s"${indent}      ")
-          s"""|${indent}    case Some(${ftyp}(value)) =>
+          s"""|${indent}    case scala.Some(${ftyp}(value)) =>
               |${writer}""".stripMargin
         }
 
         s"""|${indent}  msg.`${name}` match {
-            |${indent}    case None =>
+            |${indent}    case scala.None =>
             |${fieldWriters.mkString("\n")}
             |${indent}  }
             |""".stripMargin
@@ -468,7 +469,7 @@ object Generator {
       case FieldArg(name, typ, _, _, Left(f)) if f.isMap =>
         val sizeOf = f.typeRef match {
           case ProtoFile.TypeRef.Message(msg) =>
-            genComputeSizeTagged(f, s"${translateType(msg)}(Some(value._1), Some(value._2))", translateType)
+            genComputeSizeTagged(f, s"${translateType(msg)}(scala.Some(value._1), scala.Some(value._2))", translateType)
           case _ => ""
         }
         s"""|${indent}  val ${name}Iter = msg.`${name}`.iterator
@@ -490,8 +491,8 @@ object Generator {
       case FieldArg(name, typ, _, _, Left(f)) =>
         val sizeOf = genComputeSizeTagged(f, "value", translateType)
         s"""|${indent}  msg.`${name}` match {
-            |${indent}    case None =>
-            |${indent}    case Some(value) =>
+            |${indent}    case scala.None =>
+            |${indent}    case scala.Some(value) =>
             |${indent}      val sz = ${sizeOf}
             |${indent}      size += sz
             |${indent}  }""".stripMargin
@@ -500,14 +501,14 @@ object Generator {
         val fieldSizes = o.fields.map { f =>
           val ftyp = s"${typ}.${snakeToUpperCamel(f.name)}"
           val sizeOf = genComputeSizeTagged(f, "value", translateType)
-          s"""|${indent}    case Some(${ftyp}(value)) =>
+          s"""|${indent}    case scala.Some(${ftyp}(value)) =>
               |${indent}      val sz = ${sizeOf}
               |${indent}      size += sz
               |""".stripMargin
         }
 
         s"""|${indent}  msg.`${name}` match {
-            |${indent}    case None =>
+            |${indent}    case scala.None =>
             |${fieldSizes.mkString("")}
             |${indent}  }
             |""".stripMargin
@@ -663,7 +664,7 @@ object Generator {
         |${indent}  class Server(iface: ${scope}.${svc.name})
         |${indent}      extends ${RTPKG}.ServerDispatcher.Service {
         |${indent}    override val name = Server.name
-        |${indent}    override val rpcs = Seq[$RTPKG.ServerDispatcher.Rpc](${srvRpcsTxt})
+        |${indent}    override val rpcs = scala.Seq[$RTPKG.ServerDispatcher.Rpc](${srvRpcsTxt})
         |${indent}  }
         |${indent}}
         |""".stripMargin
@@ -770,8 +771,8 @@ object Generator {
 
   def genBoxedFieldType(f: ProtoFile.Field, translate: String => String): String = {
     val typ = genFieldType(f, translate)
-    if (f.isRepeated) s"Seq[$typ]"
-    else s"Option[$typ]"
+    if (f.isRepeated) s"scala.Seq[$typ]"
+    else s"scala.Option[$typ]"
   }
 
   private[this] val SnakeRE = """_(.)""".r

@@ -3,16 +3,17 @@ package io.buoyant.consul.v1
 import com.fasterxml.jackson.databind.{DeserializationFeature, ObjectMapper}
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import com.fasterxml.jackson.module.scala.experimental.ScalaObjectMapper
-import com.twitter.finagle.http.Request
+import com.twitter.finagle.http.{Request, Response}
 import com.twitter.finagle.buoyant.RetryFilter
 import com.twitter.finagle.param.HighResTimer
 import com.twitter.finagle.service.{RetryBudget, RetryPolicy}
 import com.twitter.finagle.stats.StatsReceiver
 import com.twitter.finagle.tracing.Trace
 import com.twitter.finagle._
-import com.twitter.io.Buf
+import com.twitter.io.{Buf, BufReader}
 import com.twitter.util._
 import io.buoyant.consul.log
+
 import scala.util.control.NonFatal
 
 // a thunked version of the api call such that we can peek at the request before making the call
@@ -21,7 +22,7 @@ case class ApiCall[Rep] private[v1] (req: Request, call: Request => Future[Rep])
 }
 
 trait BaseApi extends Closable {
-  def client: Client
+  def client: Service[http.Request, http.Response]
 
   def uriPrefix: String
 
@@ -85,9 +86,15 @@ trait BaseApi extends Closable {
   mapper.registerModule(DefaultScalaModule)
   mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
 
-  def parseJson[T: Manifest](buf: Buf): Try[T] = {
-    val Buf.ByteArray.Owned(bytes, begin, end) = Buf.ByteArray.coerce(buf)
-    Try(mapper.readValue[T](bytes, begin, end - begin))
+  private def parse[T: Manifest](rsp: Response): Future[T] = {
+    val content = if (rsp.isChunked)
+      BufReader.readAll(rsp.reader)
+    else
+      Future.value(rsp.content)
+
+    content.map(Buf.ByteArray.coerce).map {
+      case Buf.ByteArray.Owned(bytes, begin, end) => mapper.readValue[T](bytes, begin, end - begin)
+    }
   }
 
   private[v1] def executeJson[T: Manifest](
@@ -96,7 +103,7 @@ trait BaseApi extends Closable {
   ): Future[Indexed[T]] = {
     for {
       rsp <- Trace.letClear(getClient(retry)(req))
-      value <- Future.const(parseJson[T](rsp.content))
+      value <- parse[T](rsp)
     } yield Indexed[T](value, rsp.headerMap.get(Headers.Index))
   }
 

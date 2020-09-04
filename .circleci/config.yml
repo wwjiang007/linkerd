@@ -1,5 +1,5 @@
 
-version: 2
+version: 2.1
 jobs:
   build:
     docker:
@@ -9,6 +9,7 @@ jobs:
       - image: openjdk:8
         environment:
           CI_TERRIBLENESS: 30.seconds
+          OPENSSL_CONF: admin/src/main/resources/io/buoyant/admin/openssl.cnf
     # Run two containers, $CIRCLE_NODE_TOTAL = 2, $CIRCLE_NODE_INDEX = [0|1]
     parallelism: 2
     resource_class: large
@@ -56,11 +57,11 @@ jobs:
           name: Install Node.js
           command: |
             set -x
-            if [ ! -f node-v6.10.2-linux-x64.tar.xz ]; then
-              curl -sLO https://nodejs.org/dist/v6.10.2/node-v6.10.2-linux-x64.tar.xz
+            if [ ! -f node-v14.2.0-linux-x64.tar.xz ]; then
+              curl -sLO https://nodejs.org/dist/v14.2.0/node-v14.2.0-linux-x64.tar.xz
             fi
-            tar -xf node-v6.10.2-linux-x64.tar.xz
-            cp -a node-v6.10.2-linux-x64/* /usr/
+            tar -xf node-v14.2.0-linux-x64.tar.xz
+            cp -a node-v14.2.0-linux-x64/* /usr/
 
       # Run ./sbt update, optionally run ./ci/twitter-develop.sh if
       # $TWITTER_DEVELOP is set. Dependencies may already be in cache.
@@ -102,7 +103,7 @@ jobs:
           key: linkerd-{{ checksum "/tmp/project-seed.txt" }}
           paths:
             - "docker-17.03.0-ce.tgz"
-            - "node-v6.10.2-linux-x64.tar.xz"
+            - "node-v14.2.0-linux-x64.tar.xz"
             - "~/.gitshas"
             - "~/.ivy2"
             - "~/.sbt"
@@ -136,3 +137,33 @@ jobs:
       # Store test results from previous step.
       - store_test_results:
           path: /tmp/test-results
+
+workflows:
+  version: 2
+  build:
+    jobs:
+    - build
+
+  nightly:
+    triggers:
+    - schedule:
+        cron: "30 12 * * *"
+        filters:
+          branches:
+            only:
+            - master
+    jobs:
+    - build:
+        context: nightly
+
+  twitter_develop:
+    triggers:
+    - schedule:
+        cron: "10 12 * * *"
+        filters:
+          branches:
+            only:
+            - master
+    jobs:
+    - build:
+        context: twitter_develop

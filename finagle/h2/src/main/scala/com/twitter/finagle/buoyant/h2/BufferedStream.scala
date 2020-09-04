@@ -22,15 +22,15 @@ import scala.util.control.NoStackTrace
  *
  * The Frames that are stored in the buffer and offered to the child Streams are refcounted and
  * the underlying Frame will only be released once each child Stream releases the Frame and the
- * buffer itself releases the Frame.  Threrefore you should always call discardBuffer on a
+ * buffer itself releases the Frame.  Therefore you should always call discardBuffer on a
  * BufferedStream before it leaves scope.
  */
 class BufferedStream(underlying: Stream, bufferCapacity: Long = 16383) { bufferedStream =>
 
   // Mutable state.  All mutations of state must be explicitly synchronized
-  private[this] val buffer = mutable.MutableList[RefCountedFrame]()
+  private[this] val buffer = mutable.ListBuffer[RefCountedFrame]()
   private[this] var _bufferSize = 0L
-  private[this] val forks = mutable.MutableList[AsyncQueue[Frame]]()
+  private[this] val forks = mutable.ListBuffer[AsyncQueue[Frame]]()
   private[this] var state: State = State.Buffering
   private[this] val _onEnd = new Promise[Unit]
 

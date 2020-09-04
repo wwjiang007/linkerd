@@ -13,9 +13,9 @@ object TlsUtils {
   def run(p: ProcessBuilder): Int = p ! DevNull
 
   case class ServiceCert(cert: File, key: File) {
-    def delete() { assert(cert.delete() && key.delete()) }
+    def delete() = { assert(cert.delete() && key.delete()) }
 
-    def renameTo(name: String) {
+    def renameTo(name: String) = {
       val newCert = new File(cert.getParentFile, s"${name}_cert.pem")
       val newKey = new File(key.getParentFile, s"${name}_pk8.pem")
       assert(cert.renameTo(newCert) && key.renameTo(newKey))
@@ -134,7 +134,7 @@ object TlsUtils {
     |default_md = sha256
     |distinguished_name = req_distinguished_name
     |req_extensions = v3_req
-    |encyrpt_key = no
+    |encrypt_key = no
     |
     |[ req_distinguished_name ]
     |

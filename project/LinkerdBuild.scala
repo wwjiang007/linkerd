@@ -28,6 +28,7 @@ object LinkerdBuild extends Base {
     .dependsOn(configCore)
     .withTwitterLib(Deps.finagle("http"))
     .withLibs(Deps.jackson)
+    .withLib(Deps.scalaCollectionCompat)
     .withTests()
 
   val etcd = projectDir("etcd")
@@ -115,7 +116,7 @@ object LinkerdBuild extends Base {
 
     val zkLeader = projectDir("namer/zk-leader")
       .dependsOn(core)
-      .withLib(Deps.zkCandidate)
+      .withTwitterLib(Deps.finagle("serversets").exclude("org.slf4j", "slf4j-jdk14"))
       .withTests()
 
     val rancher = projectDir("namer/rancher")
@@ -137,6 +138,7 @@ object LinkerdBuild extends Base {
 
     val baseHttp = projectDir("router/base-http")
       .dependsOn(core)
+      .withTests()
 
     val h2 = projectDir("router/h2")
       .dependsOn(baseHttp, Finagle.h2 % "compile->compile;test->test")
@@ -282,7 +284,7 @@ object LinkerdBuild extends Base {
        | Unable to use [$GC_LOG] for GC logging."
        |else
        |  if [ "$LOCAL_JAVA_VERSION" -ge 9 ]; then
-       |    GC_LOG_OPTION="-Xlog:gc*,gc+age=trace,gc+heap=debug,gc+promotion=trace,safepoint:file=${GC_LOG}/gc.log::filecount=10,filesize=10000:time"
+       |    GC_LOG_OPTION="-Xlog:gc*,gc+age=trace,gc+heap=debug,gc+promotion=trace,safepoint:file=${GC_LOG}/gc.log::filecount=10,filesize=10M:time"
        |  else
        |    GC_LOG_OPTION="
        |      -XX:+PrintGCDetails
@@ -479,7 +481,7 @@ object LinkerdBuild extends Base {
       baseNamerdExecScript +
       gcLogOptionScript +
       execScriptJvmOptions +
-      """|if read -r 0; then
+      """|if read -r; then
          |  CONFIG_INPUT=$(cat)
          |fi
          |

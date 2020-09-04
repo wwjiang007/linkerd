@@ -1,17 +1,19 @@
 package io.buoyant.linkerd.protocol.http
 
+import com.fasterxml.jackson.databind.exc.InvalidDefinitionException
 import com.twitter.finagle.buoyant.Dst
+import com.twitter.finagle.http.param.{MaxInitialLineSize, Streaming}
 import com.twitter.finagle.http.{Method, Request}
 import com.twitter.finagle.{Dtab, Path, Stack}
+import com.twitter.conversions.StorageUnitOps._
 import com.twitter.util.Future
 import io.buoyant.config.Parser
-import io.buoyant.linkerd.{IdentifierInitializer, RouterConfig}
 import io.buoyant.linkerd.protocol.{HttpConfig, HttpIdentifierConfig, HttpInitializer}
+import io.buoyant.linkerd.{IdentifierInitializer, RouterConfig}
 import io.buoyant.router.Http
 import io.buoyant.router.RoutingFactory.{IdentifiedRequest, Identifier}
 import io.buoyant.router.http.TimestampHeaderFilter
-import io.buoyant.test.Awaits
-import io.buoyant.test.FunSuite
+import io.buoyant.test.{Awaits, FunSuite}
 
 class HttpConfigTest extends FunSuite with Awaits {
 
@@ -31,8 +33,7 @@ class HttpConfigTest extends FunSuite with Awaits {
                   |  kind: io.l5d.methodAndHost
                   |maxHeadersKB: 8
                   |maxInitialLineKB: 4
-                  |maxRequestKB: 5120
-                  |maxResponseKB: 5120
+                  |streamingEnabled: true
                   |servers:
                   |- port: 5000
       """.stripMargin
@@ -43,8 +44,110 @@ class HttpConfigTest extends FunSuite with Awaits {
     assert(config.httpAccessLogRotateCount.get == -1)
     assert(config.maxHeadersKB.get == 8)
     assert(config.maxInitialLineKB.get == 4)
-    assert(config.maxRequestKB.get == 5120)
-    assert(config.maxResponseKB.get == 5120)
+    assert(config.streamingEnabled.contains(true))
+
+  }
+
+  test("DefaultsTest - no streaming, no streamAfterContentLengthKB") {
+    val yaml = s"""
+                  |protocol: http
+                  |identifier:
+                  |  kind: io.l5d.methodAndHost
+                  |maxInitialLineKB: 4
+                  |servers:
+                  |- port: 5000
+      """.stripMargin
+    val config = parse(yaml)
+
+    val streaming = config.routerParams(Stack.Params.empty)[Streaming]
+    assert(streaming.enabled)
+    /*  wish we could assert this, cause the "default" was 5meg
+    streaming match {
+      case Streaming.Enabled(fixedLengthStreamedAfter) => assert(fixedLengthStreamedAfter == 5.kilobytes)
+      case _ => fail()
+    }
+    */
+  }
+
+  test("DefaultsTest - no streaming, streamAfterContentLengthKB present") {
+    val yaml = s"""
+                  |protocol: http
+                  |identifier:
+                  |  kind: io.l5d.methodAndHost
+                  |maxInitialLineKB: 4
+                  |streamAfterContentLengthKB: 5
+                  |servers:
+                  |- port: 5000
+      """.stripMargin
+    val config = parse(yaml)
+
+    val streaming = config.routerParams(Stack.Params.empty)[Streaming]
+    assert(streaming.enabled)
+  }
+
+  test("DefaultsTest - Stream enabled, no streamAfter") {
+    val yaml = s"""
+                  |protocol: http
+                  |identifier:
+                  |  kind: io.l5d.methodAndHost
+                  |maxInitialLineKB: 4
+                  |streamAfterContentLengthKB: 5
+                  |streamingEnabled: true
+                  |servers:
+                  |- port: 5000
+      """.stripMargin
+    val config = parse(yaml)
+
+    val streaming = config.routerParams(Stack.Params.empty)[Streaming]
+    assert(streaming.enabled)
+  }
+
+  test("Issue #2393 - MaxInitialLineSize set from config") {
+    val yaml = s"""
+                  |protocol: http
+                  |identifier:
+                  |  kind: io.l5d.methodAndHost
+                  |maxInitialLineKB: 64
+                  |servers:
+                  |- port: 5000
+      """.stripMargin
+    val config = parse(yaml)
+
+    val maxInitialLineKB = config.routerParams(Stack.Params.empty)[MaxInitialLineSize]
+    assert(maxInitialLineKB.size == 64.kilobytes)
+  }
+
+  test("ConfigErrorTest - Stream disabled, streamAfter Set") {
+    val yaml = s"""
+                  |protocol: http
+                  |identifier:
+                  |  kind: io.l5d.methodAndHost
+                  |maxInitialLineKB: 4
+                  |streamAfterContentLengthKB: 5
+                  |streamingEnabled: false
+                  |servers:
+                  |- port: 5000
+      """.stripMargin
+
+    intercept[InvalidDefinitionException] {
+      parse(yaml)
+    }
+  }
+
+  test("DefaultsTest - Stream disabled, streamAfter Set") {
+    val yaml = s"""
+                  |protocol: http
+                  |identifier:
+                  |  kind: io.l5d.methodAndHost
+                  |maxInitialLineKB: 4
+                  |streamingEnabled: false
+                  |servers:
+                  |- port: 5000
+      """.stripMargin
+    val config = parse(yaml)
+
+    val streaming = config.routerParams(Stack.Params.empty)[Streaming]
+    assert(streaming.disabled)
   }
 
   test("default identifier") {

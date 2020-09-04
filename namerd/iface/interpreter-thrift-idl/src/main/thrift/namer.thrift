@@ -72,7 +72,7 @@ exception BindFailure {
 /*
  * ADDRESS RESOLUTION
  *
- * Once a name is bound, the bound id may be used to watch address updates. 
+ * Once a name is bound, the bound id may be used to watch address updates.
  */
 
 struct AddrReq {
@@ -131,7 +131,7 @@ struct Transformation {
 }
 
 union DelegateContents {
-  1: string excpetion
+  1: string error
   2: Void empty
   3: Void fail
   4: Void neg

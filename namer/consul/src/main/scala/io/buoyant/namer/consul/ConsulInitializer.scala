@@ -41,6 +41,7 @@ import io.buoyant.namer.{NamerConfig, NamerInitializer}
  *     clientAuth:
  *       certPath: /certificates/cert.pem
  *       keyPath: /certificates/key.pem
+ *    transferMetadata: true
  * </pre>
  */
 class ConsulInitializer extends NamerInitializer {
@@ -64,11 +65,9 @@ case class ConsulConfig(
   failFast: Option[Boolean] = None,
   preferServiceAddress: Option[Boolean] = None,
   weights: Option[Seq[TagWeight]] = None,
-  maxHeadersKB: Option[Int],
-  maxInitialLineKB: Option[Int],
-  maxRequestKB: Option[Int],
-  maxResponseKB: Option[Int],
-  tls: Option[TlsClientConfig] = None
+  fixedLengthStreamedAfterKB: Option[Int],
+  tls: Option[TlsClientConfig] = None,
+  transferMetadata: Option[Boolean] = None
 ) extends NamerConfig {
 
   @JsonIgnore
@@ -80,19 +79,6 @@ case class ConsulConfig(
     case None => 8500
   }
 
-  def configuredHttpClientParams = {
-    val headersKB = maxHeadersKB.map(kb => MaxHeaderSize(kb.kilobytes))
-    val initialLineKB = maxInitialLineKB.map(kb => MaxInitialLineSize(kb.kilobytes))
-    val requestKB = maxRequestKB.map(kb => MaxRequestSize(kb.kilobytes))
-    val responseKB = maxResponseKB.map(kb => MaxResponseSize(kb.kilobytes))
-
-    Stack.Params.empty
-      .maybeWith(headersKB)
-      .maybeWith(initialLineKB)
-      .maybeWith(requestKB)
-      .maybeWith(responseKB)
-  }
-
   /**
    * Build a Namer backed by Consul.
    */
@@ -102,10 +88,12 @@ case class ConsulConfig(
     // Request timeout used to make sure long-polling requests are never stale.
     val DefaultRequestTimeout = 10.minutes
     val tlsParams = tls.map(_.params).getOrElse(Stack.Params.empty)
+    val DefaultStreamAfter = 5.megabytes
 
     val service = Http.client
-      .withParams(Http.client.params ++ configuredHttpClientParams ++ tlsParams ++ params)
+      .withParams(Http.client.params ++ tlsParams ++ params)
       .withLabel("client")
+      .withStreaming(fixedLengthStreamedAfterKB.map(_.megabytes).getOrElse(DefaultStreamAfter))
       .interceptInterrupts
       .failFast(failFast)
       .setAuthToken(token)
@@ -131,11 +119,27 @@ case class ConsulConfig(
     includeTag match {
       case Some(true) =>
         ConsulNamer.tagged(
-          prefix, consul, agent, setHost.getOrElse(false), consistencyMode, preferServiceAddress, tagWeights, stats
+          prefix,
+          consul,
+          agent,
+          setHost.getOrElse(false),
+          consistencyMode,
+          preferServiceAddress,
+          tagWeights,
+          stats,
+          transferMetadata.getOrElse(false)
         )
       case _ =>
         ConsulNamer.untagged(
-          prefix, consul, agent, setHost.getOrElse(false), consistencyMode, preferServiceAddress, tagWeights, stats
+          prefix,
+          consul,
+          agent,
+          setHost.getOrElse(false),
+          consistencyMode,
+          preferServiceAddress,
+          tagWeights,
+          stats,
+          transferMetadata.getOrElse(false)
         )
     }
   }
